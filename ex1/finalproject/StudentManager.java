@@ -1,159 +1,151 @@
 package ap.exercises.finalproject;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.stream.Collectors;
 
-public class StudentManager implements List_Tool<Student> , Account_Handler<Student>,Ban_Control {
-    private Map<String,Student> students;
-    private  FileHandling<Student> sF;
-
-    public StudentManager() {
-        this.students = new HashMap<>();
-        this.sF=new FileHandling<>("F:/JavaProject/ap/exercises/finalproject/Students.json");
-    }
+public class StudentManager implements Account_Handler<Student>, Ban_Control {
 
     public void registerStudent(String name, String username, String password) throws InvalidEntrance {
-        getList();
         if (isUsernameTaken(username)) {
             System.out.println("This username already exists. Please choose a different username.");
             return;
         }
-        int maxId=0;
-        if(students!=null)
-        {
-            maxId=students.values().stream()
-                    .map(student -> Integer.parseInt(student.getStudentId()))
-                    .max(Integer::compare)
-                    .orElse(0);
+        String sql = "INSERT INTO students (username, password, name, student_id, permission) VALUES (?, ?, ?, ?, 'ACTIVE')";
+        try (PreparedStatement ps = DatabaseManager.getConnection().prepareStatement(sql)) {
+            ps.setString(1, username.trim());
+            ps.setString(2, password.trim());
+            ps.setString(3, name.trim());
+            ps.setString(4, String.valueOf(nextStudentId()));
+            ps.executeUpdate();
+            System.out.println("Student registration completed successfully.");
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
         }
-        Student newStudent = new Student(name.trim(),String.valueOf(maxId+1), username.trim(), password.trim());
-        sF.writeInFile(newStudent, Student.class);
-        System.out.println("Student registration completed successfully.");
     }
 
     public Student authenticateUser(String username, String password) {
-        getList();
-        return students.values().stream()
-                .filter(s -> s.getUsername().equals(username) && s.getPassword().equals(password))
-                .findFirst()
-                .orElse(null);
+        return findStudent("username = ? AND password = ?", username, password);
     }
 
-    public void getList()
-    {
-        List<Student> l=new ArrayList<>();
-        if(students!=null && !students.isEmpty())
-            students.clear();
-        l=sF.readFromFile(Student.class);
-        if(l!=null) {
-            students = l.stream()
-                    .collect(Collectors.toMap(Student::getUsername, x -> x));
+    public Student getAUser(String username) {
+        return findStudent("username = ?", username);
+    }
+
+    public Map<String, Student> returnStudent() {
+        Map<String, Student> students = new LinkedHashMap<>();
+        try (PreparedStatement ps = DatabaseManager.getConnection().prepareStatement(
+                "SELECT * FROM students ORDER BY CAST(student_id AS INTEGER)")) {
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Student s = studentFrom(rs);
+                    students.put(s.getUsername(), s);
+                }
+            }
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
         }
-    }
-
-    public Map<String,Student> returnStudent()
-    {
-        getList();
         return students;
     }
 
+    public void banStudent(String username) {
+        updatePermission(username, "INACTIVE");
+        System.out.println("Student Banned Successfully!");
+    }
+
+    public void unbanStudent(String username) {
+        updatePermission(username, "ACTIVE");
+        System.out.println("Student Unbanned Successfully!");
+    }
+
+    public void editName(String name, Student s) throws InvalidEntrance {
+        s.setName(name); // validates the new name
+        updateField("name", name, s.getUsername());
+    }
+
+    public void editPassword(String password, Student s) throws InvalidEntrance {
+        s.setPassword(password); // validates the new password
+        updateField("password", password, s.getUsername());
+    }
+
+    public void editStudentId(String id, Student s) throws InvalidEntrance {
+        s.setStudentId(id); // validates the new id
+        updateField("student_id", id, s.getUsername());
+    }
+
     private boolean isUsernameTaken(String username) {
-        getList();
-        if(students!=null)
-            return students.entrySet().stream().anyMatch(s -> s.getKey().equals(username));
+        try (PreparedStatement ps = DatabaseManager.getConnection().prepareStatement(
+                "SELECT 1 FROM students WHERE username = ?")) {
+            ps.setString(1, username);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
+        }
         return false;
     }
-    public void banStudent(String username) {
-        getList();
-        try{
-            for(Map.Entry<String ,Student> m:students.entrySet()) {
-                if(m.getKey().equals(username))
-                    m.getValue().banStudent();
+
+    private int nextStudentId() {
+        try (PreparedStatement ps = DatabaseManager.getConnection().prepareStatement(
+                "SELECT MAX(CAST(student_id AS INTEGER)) FROM students")) {
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next())
+                    return rs.getInt(1) + 1;
             }
-            System.out.println("Student Banned Successfully!");
-        }catch (InvalidEntrance e) {
-            System.out.println(e.getMessage());
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
         }
-        updateList(students);
+        return 1;
     }
 
-    public void unbanStudent(String username){
-        getList();
-        try{
-            for(Map.Entry<String ,Student> m:students.entrySet()) {
-                if(m.getKey().equals(username))
-                    m.getValue().unbanStudent();
+    private void updatePermission(String username, String permission) {
+        try (PreparedStatement ps = DatabaseManager.getConnection().prepareStatement(
+                "UPDATE students SET permission = ? WHERE username = ?")) {
+            ps.setString(1, permission);
+            ps.setString(2, username);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
+        }
+    }
+
+    private void updateField(String column, String value, String username) {
+        try (PreparedStatement ps = DatabaseManager.getConnection().prepareStatement(
+                "UPDATE students SET " + column + " = ? WHERE username = ?")) {
+            ps.setString(1, value);
+            ps.setString(2, username);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
+        }
+    }
+
+    private Student findStudent(String condition, String... params) {
+        try (PreparedStatement ps = DatabaseManager.getConnection().prepareStatement(
+                "SELECT * FROM students WHERE " + condition)) {
+            for (int i = 0; i < params.length; i++)
+                ps.setString(i + 1, params[i]);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next())
+                    return studentFrom(rs);
             }
-            System.out.println("Student Unbanned Successfully!");
-        }catch(InvalidEntrance e)
-        {
-            System.out.println(e.getMessage());
-        }
-        updateList(students);
-    }
-
-    public void editName(String name,Student s) throws InvalidEntrance {
-        getList();
-        if(students!=null)
-        {
-            for(Map.Entry<String ,Student> m:students.entrySet())
-            {
-                if(m.getKey().equals(s.getUsername()))
-                    m.getValue().setName(name);
-            }
-            updateList(students);
-        }
-    }
-
-    public void editPassword(String password,Student s) throws InvalidEntrance {
-        getList();
-        if(students!=null) {
-            for(Map.Entry<String ,Student> m:students.entrySet())
-            {
-                if(m.getValue().getPassword().equals(s.getPassword()))
-                    m.getValue().setName(password);
-            }
-            updateList(students);
-        }
-    }
-
-    public void editStudentId(String id,Student s) throws InvalidEntrance {
-        getList();
-        if(students!=null)
-        {
-            for(Map.Entry<String ,Student> m:students.entrySet())
-            {
-                if(m.getValue().getStudentId().equals(s.getStudentId()))
-                    m.getValue().setName(id);
-            }
-            updateList(students);
-        }
-    }
-
-    public void updateList(Map<String,Student> l)
-    {
-        sF.clearFile();
-        for(Student s:l.values())
-        {
-            sF.writeInFile(s, Student.class);
-        }
-    }
-
-    public Student getAUser(String username)
-    {
-        getList();
-        if(students!=null)
-        {
-            return students.entrySet().stream()
-                    .filter(x->x.getKey().equals(username))
-                    .findFirst()
-                    .get()
-                    .getValue();
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
         }
         return null;
     }
-}
 
+    private Student studentFrom(ResultSet rs) throws SQLException {
+        try {
+            Student s = new Student(rs.getString("name"), rs.getString("student_id"),
+                    rs.getString("username"), rs.getString("password"));
+            s.setPermission(rs.getString("permission"));
+            return s;
+        } catch (InvalidEntrance e) {
+            throw new BookException("Corrupted student row: " + e.getMessage());
+        }
+    }
+}

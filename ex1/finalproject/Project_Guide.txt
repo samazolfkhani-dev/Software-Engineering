@@ -1,6 +1,15 @@
 This Project contains two version: v1(writing and reading by ObjectInputStream & ObjectOutputStream(i will add the link of
  last commit for this version at the end!)) and v2(writing and reading in file by Json(Gson Library))
 
+The project now has a third version (v3): all data is stored in an SQLite database file (library.db)
+using the SQLite JDBC driver (sqlite-jdbc-3.53.4.0.jar). On the first run the program creates
+library.db automatically and, if the old JSON files are still next to it, imports their data once.
+The old .txt files belong to v1 and are not used anymore.
+
+Compile and run (from the project folder; on Windows use ; instead of : in the classpath):
+javac -d out -cp "gson-2.13.1.jar:sqlite-jdbc-3.53.4.0.jar" *.java
+java -cp "out:gson-2.13.1.jar:sqlite-jdbc-3.53.4.0.jar" ap.exercises.finalproject.LibrarySystem
+
 The project has one main manager who can add another manager :(username:Sama password:1000)
 two students has been registered till now:(username:sama password:100///username:sima password:101)
 also two librarians exit up to now: (username:mobina password:10///username:neda password:11)

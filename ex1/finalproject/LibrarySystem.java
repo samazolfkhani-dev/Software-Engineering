@@ -15,6 +15,7 @@ public class LibrarySystem {
     private ManagerHandler managerHandler;
 
     public LibrarySystem() {
+        DatabaseManager.getConnection(); // opens library.db, creates the tables and imports the old JSON files on first run
         this.studentManager = new StudentManager();
         this.bookHandler=new BookHandler();
         this.menuHandler = new MenuHandler(this);

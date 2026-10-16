@@ -17,17 +17,25 @@ public class Loan
     public Loan(){}
     public Loan(Book book,Student student,int id)throws InvalidEntrance
     {
+        this(book, student, id, LocalDate.now(), null, null, null, null, null);
+    }
+
+    // Used by the database code when rebuilding a loan from a table row,
+    // where every field is stored.
+    public Loan(Book book, Student student, int id, LocalDate borrowRequestDate, LocalDate issueDate,
+                LocalDate dueDate, LocalDate returnDate, Librarian issuer, Librarian receiver)throws InvalidEntrance
+    {
         if(book!=null && student!=null)
         {
             this.book=book;
             this.student=student;
             this.id=id;
-            this.dueDate=null;
-            this.borrowRequestDate =LocalDate.now();
-            this.issueDate=null;
-            this.returnDate=null;
-            this.issuer=null;
-            this.receiver=null;
+            this.borrowRequestDate =borrowRequestDate;
+            this.issueDate=issueDate;
+            this.dueDate=dueDate;
+            this.returnDate=returnDate;
+            this.issuer=issuer;
+            this.receiver=receiver;
         }
         else
         {

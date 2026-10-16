@@ -38,6 +38,12 @@ public class Student extends User{
         return permission.name();
     }
 
+    // Used by the database code when rebuilding a student from a table row.
+    void setPermission(String permission)
+    {
+        this.permission = AccessLevel.search(permission);
+    }
+
     public void banStudent() throws InvalidEntrance {
         this.permission=AccessLevel.INACTIVE;
     }

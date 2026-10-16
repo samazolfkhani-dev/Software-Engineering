@@ -1,357 +1,267 @@
 package ap.exercises.finalproject;
+
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 public class LoanManager
 {
-    private BookHandler bookHandler;
-    private FileHandling<Loan> bF;
-    private FileHandling<Loan> rF;
-    private FileHandling<Loan> lF;
-    private FileHandling<Loan> hF;
-    private Map<Integer,Loan> borrowRequest;
-    private Map<Integer,Loan> loans;
-    private Map<Integer,Loan> history;
-    private Map<Integer,Loan> returnRequest;
+    private final BookHandler bookHandler;
+
+    // Loads a loan together with its book, its student and the two librarians
+    // connected to it, so a full Loan object can be rebuilt from a single row.
+    private static final String LOAN_JOIN =
+            "SELECT l.id AS loan_id, l.borrow_request_date, l.issue_date, l.due_date, l.return_date, " +
+            "b.isbn AS book_isbn, b.name AS book_name, b.author AS book_author, " +
+            "b.published_year AS book_year, b.state AS book_state, " +
+            "s.name AS student_name, s.student_id, s.username AS student_username, " +
+            "s.password AS student_password, s.permission AS student_permission, " +
+            "li.username AS issuer_name, li.password AS issuer_password, li.num_book AS issuer_num_book, " +
+            "lr.username AS receiver_name, lr.password AS receiver_password, lr.num_book AS receiver_num_book " +
+            "FROM loans l " +
+            "JOIN books b ON b.isbn = l.book_isbn " +
+            "JOIN students s ON s.username = l.student_username " +
+            "LEFT JOIN librarians li ON li.username = l.issuer_username " +
+            "LEFT JOIN librarians lr ON lr.username = l.receiver_username ";
 
     public LoanManager() {
-        bookHandler=new BookHandler();
-        bF=new FileHandling<>("F:/JavaProject/ap/exercises/finalproject/BorrowRequests.json");
-        lF=new FileHandling<>("F:/JavaProject/ap/exercises/finalproject/Loans.json");
-        rF=new FileHandling<>("F:/JavaProject/ap/exercises/finalproject/ReturnRequests.json");
-        hF=new FileHandling<>("F:/JavaProject/ap/exercises/finalproject/History.json");
-        borrowRequest=new HashMap<>();
-        returnRequest=new HashMap<>();
-        loans=new HashMap<>();
-        history=new HashMap<>();
+        this.bookHandler = new BookHandler();
     }
 
-    public Map<Integer,Loan> getBorrowRequest() {
-        borrowRequestList();
-        return borrowRequest;
+    public Map<Integer, Loan> getBorrowRequest() {
+        return loansByStatus("REQUEST");
     }
 
-    public void getLoans() {
-        List<Loan> l=new ArrayList<>();
-        if(loans!=null && !loans.isEmpty())
-            loans.clear();
-        l=lF.readFromFile(Loan.class);
-        if(l!=null) {
-            loans=l.stream()
-                    .collect(Collectors.toMap(Loan::getId, x->x));
-        }
-    }
-
-    public void updateBorrowRequestList(Map<Integer,Loan> l) {
-        bF.clearFile();
-        for(Loan loan:l.values()) {
-            bF.writeInFile(loan,Loan.class);
-        }
-    }
-
-    public void addToLoanList(int id,Librarian librarian) {
-        getLoans();
-        borrowRequestList();
-        Iterator<Map.Entry<Integer,Loan>> it=borrowRequest.entrySet().iterator();
-        while(it.hasNext())
-        {
-            Map.Entry<Integer,Loan> l=it.next();
-            if(l.getKey()==id) {
-                bookHandler.editBookState(l.getValue().getBook(),"borrowed");
-                l.getValue().getBook().setState("borrowed");
-                l.getValue().setIssueDate();
-                l.getValue().setIssuer(librarian);
-                if(loans!=null && loans.containsKey(l.getKey())) {
-                    System.out.println("Loan Has Already Added!");
-                    break;
-                }
-                else {
-                    lF.writeInFile(l.getValue(),Loan.class);
-                    it.remove();
-                    System.out.println("Loan Was Added Successfully!");
-                    break;
-                }
-            }
-        }
-        if(borrowRequest.isEmpty())
-            bF.clearFile();
-        else
-            updateBorrowRequestList(borrowRequest);
-    }
-
-    public void getHistory() {
-        List<Loan> l=new ArrayList<>();
-        if(history!=null && !history.isEmpty())
-            history.clear();
-        l=hF.readFromFile(Loan.class);
-        if(l!=null) {
-            history=l.stream()
-                    .collect(Collectors.toMap(Loan::getId, x->x));
-        }
-    }
-
-    public int totalLoanPerStudent(String username) {
-        getLoans();
-        int count=0;
-        getHistory();
-        if(history!=null) {
-            count=history.entrySet().stream()
-                    .filter(x->x.getValue().getStudent().getUsername().equals(username))
-                    .collect(Collectors.collectingAndThen(Collectors.counting(),Long::intValue));
-        }
-        if(loans!=null) {
-            count+=loans.entrySet().stream()
-                    .filter(x->x.getValue().getStudent().getUsername().equals(username))
-                    .collect(Collectors.collectingAndThen(Collectors.counting(),Long::intValue));
-        }
-        return count;
-    }
-
-    public void historyPerStudent(String username) {
-        getLoans();
-        getHistory();
-        if(loans!=null) {
-            loans.entrySet().stream()
-                    .filter(x->x.getValue().getStudent().getUsername().equals(username))
-                    .forEach(e-> System.out.println(e.getValue()));
-        }
-        if(history!=null) {
-            history.entrySet().stream()
-                    .filter(x->x.getValue().getStudent().getUsername().equals(username))
-                    .forEach(e-> System.out.println(e.getValue()));
-        }
-    }
-
-    public int allNotReturnedBookPerStudent(String username) {
-        int count=0;
-        getLoans();
-        if(loans!=null) {
-            count+=loans.entrySet().stream()
-                    .filter(x->x.getValue().getStudent().getUsername().equals(username))
-                    .collect(Collectors.collectingAndThen(Collectors.counting(),Long::intValue));
-        }
-        return count;
-    }
-
-    public int totalOverdueLoansPerStudent(String username) {
-        getHistory();
-        int count = 0;
-        if(history!=null) {
-            for(Loan l:history.values())
-            {
-                if(l.getStudent().getUsername().equals(username))
-                {
-                    if(l.getReturnDate().isAfter(l.getDueDate()))
-                        count++;
-                }
-            }
-        }
-        return count;
-    }
-
-    public void returnRequest(Student s,Book b) {
-        getLoans();
-        getReturnRequestList();
-        Iterator<Map.Entry<Integer,Loan>> it=loans.entrySet().iterator();
-        while(it.hasNext())
-        {
-            Map.Entry<Integer,Loan> map=it.next();
-            if(map.getValue().getStudent().getUsername().equals(s.getUsername())
-                    && map.getValue().getBook().getName().equals(b.getName())
-                    && map.getValue().getBook().getAuthor().equals(b.getAuthor()))
-            {
-                if(returnRequest!=null && returnRequest.containsKey(map.getKey())) {
-                    it.remove();
-                    System.out.println("Request has Already Added!");
-                    break;
-                }
-                else {
-                    rF.writeInFile(map.getValue(),Loan.class);
-                    it.remove();
-                    System.out.println("Request Added Successfully!");
-                    break;
-                }
-            }
-        }
-        if(loans.isEmpty())
-            lF.clearFile();
-        else
-            updateLoanList(loans);
-    }
-
-    public void updateLoanList(Map<Integer,Loan> l) {
-        rF.clearFile();
-        if(!l.isEmpty()) {
-            for (Loan loan : l.values())
-                rF.writeInFile(loan,Loan.class);
-        }
-    }
-
-    public void borrowRequestList() {
-        List<Loan> l;
-        if(borrowRequest!=null && !borrowRequest.isEmpty())
-            borrowRequest.clear();
-        l= bF.readFromFile(Loan.class);
-        if(l!=null) {
-            borrowRequest=l.stream()
-                    .collect(Collectors.toMap(Loan::getId, x->x));
-        }
-    }
-
-    public void getReturnRequestList() {
-        List<Loan> l;
-        if(returnRequest!=null && !returnRequest.isEmpty())
-            returnRequest.clear();
-        l=rF.readFromFile(Loan.class);
-        if(l!=null) {
-            returnRequest=l.stream()
-                    .collect(Collectors.toMap(Loan::getId, x->x));
-        }
-    }
-
-    public void borrowRequest(Book book,Student student) throws InvalidEntrance {
-        getBorrowRequest();
-        getHistory();
-        if(student.getPermission().equalsIgnoreCase("Active"))
-        {
-            int maxId=0;
-            if(history!=null)
-            {
-                maxId=history.keySet().stream()
-                        .max(Integer::compare)
-                        .orElse(0);
-            }
-            bookHandler.editBookState(book,"reserved");
-            Loan l=new Loan(book,student,maxId+1);
-            bookHandler.editBookState(l.getBook(),"Reserved");
-            l.getBook().setState("reserved");
-            if(borrowRequest!=null && borrowRequest.containsKey(l.getId()))
-                System.out.println("Request Already Added!");
-            else
-            {
-                bF.writeInFile(l,Loan.class);
-                System.out.println("Request Was Added Successfully!");
-            }
-        }
-        else
-        {
+    public void borrowRequest(Book book, Student student) throws InvalidEntrance {
+        if (!student.getPermission().equalsIgnoreCase("Active")) {
             System.out.println("Sorry! You Are Banned.");
+            return;
         }
+        if (hasPendingRequest(book.getISBN(), student.getUsername())) {
+            System.out.println("Request Already Added!");
+            return;
+        }
+        String sql = "INSERT INTO loans (status, book_isbn, student_username, borrow_request_date) VALUES ('REQUEST', ?, ?, ?)";
+        try (PreparedStatement ps = DatabaseManager.getConnection().prepareStatement(sql)) {
+            ps.setString(1, book.getISBN());
+            ps.setString(2, student.getUsername());
+            ps.setString(3, LocalDate.now().toString());
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
+            return;
+        }
+        bookHandler.editBookState(book, "RESERVED");
+        System.out.println("Request Was Added Successfully!");
     }
 
-    public void removeBanStudent(String username) {
-        getBorrowRequest();
-        if(borrowRequest!=null) {
-            Iterator<Map.Entry<Integer,Loan>> it=borrowRequest.entrySet().iterator();
-            while(it.hasNext())
-            {
-                Map.Entry<Integer,Loan> m=it.next();
-                if(m.getValue().getStudent().getUsername().equals(username))
-                    it.remove();
+    public void addToLoanList(int id, Librarian librarian) {
+        Loan loan = getLoanById(id, "REQUEST");
+        if (loan == null)
+            return;
+        LocalDate today = LocalDate.now();
+        String sql = "UPDATE loans SET status = 'ACTIVE', issue_date = ?, due_date = ?, issuer_username = ? WHERE id = ?";
+        try (PreparedStatement ps = DatabaseManager.getConnection().prepareStatement(sql)) {
+            ps.setString(1, today.toString());
+            ps.setString(2, today.plusDays(30).toString());
+            ps.setString(3, librarian.getUsername());
+            ps.setInt(4, id);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
+            return;
+        }
+        bookHandler.editBookState(loan.getBook(), "BORROWED");
+        System.out.println("Loan Was Added Successfully!");
+    }
 
-            }
-            updateLoanList(borrowRequest);
+    public void returnRequest(Student s, Book b) {
+        if (b == null)
+            return;
+        List<Loan> matches = queryLoans(
+                "l.status = 'ACTIVE' AND l.student_username = ? AND lower(b.name) = lower(?) AND lower(b.author) = lower(?)",
+                s.getUsername(), b.getName(), b.getAuthor());
+        if (matches.isEmpty())
+            return;
+        try (PreparedStatement ps = DatabaseManager.getConnection().prepareStatement(
+                "UPDATE loans SET status = 'RETURN_REQUEST' WHERE id = ?")) {
+            ps.setInt(1, matches.get(0).getId());
+            ps.executeUpdate();
+            System.out.println("Request Added Successfully!");
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
         }
     }
 
     public boolean getReturnRequest()
     {
-        getReturnRequestList();
-        if(returnRequest!=null) {
-            for (Loan l : returnRequest.values()) {
-                System.out.println(l);
-                return true;
-            }
+        Map<Integer, Loan> requests = loansByStatus("RETURN_REQUEST");
+        if (!requests.isEmpty()) {
+            System.out.println(requests.values().iterator().next());
+            return true;
         }
-        else
-            System.out.println("Return Request List Is Empty!");
         return false;
     }
 
-    public void addToHistory(int id,Librarian librarian) {
-        getHistory();
-        getReturnRequest();
-        Iterator<Map.Entry<Integer,Loan>> it=returnRequest.entrySet().iterator();
-        while(it.hasNext()) {
-            Map.Entry<Integer,Loan> l=it.next();
-            if(l.getKey()==id) {
-                l.getValue().setReturnDate();
-                l.getValue().setReceiver(librarian);
-                bookHandler.editBookState(l.getValue().getBook(),"Available");
-                if(history!=null && history.containsKey(l.getKey())) {
-                    it.remove();
-                    System.out.println("Request Has Already Added To History!");
-                }
-                else {
-                    it.remove();
-                    hF.writeInFile(l.getValue(),Loan.class);
-                    System.out.println("Book Returned Successfully!");
-                }
-            }
+    public void addToHistory(int id, Librarian librarian) {
+        Loan loan = getLoanById(id, "RETURN_REQUEST");
+        if (loan == null)
+            return;
+        String sql = "UPDATE loans SET status = 'RETURNED', return_date = ?, receiver_username = ? WHERE id = ?";
+        try (PreparedStatement ps = DatabaseManager.getConnection().prepareStatement(sql)) {
+            ps.setString(1, LocalDate.now().toString());
+            ps.setString(2, librarian.getUsername());
+            ps.setInt(3, id);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
+            return;
         }
-        if(returnRequest.isEmpty())
-            rF.clearFile();
-        else
-            updateReturnRequestList(returnRequest);
+        bookHandler.editBookState(loan.getBook(), "AVAILABLE");
+        System.out.println("Book Returned Successfully!");
     }
 
-    public void updateReturnRequestList(Map<Integer,Loan> l) {
-        rF.clearFile();
-        for(Loan loan:l.values())
-            rF.writeInFile(loan,Loan.class);
+    public int totalLoanPerStudent(String username) {
+        return DatabaseManager.count(
+                "SELECT COUNT(*) FROM loans WHERE student_username = ? AND status IN ('ACTIVE', 'RETURNED')", username);
     }
 
-    public void librarianHistory(String username){
-        int issue=0;
-        int recieve=0;
-        getHistory();
-        if(history!=null) {
-            for(Loan l:history.values()) {
-                if(l.getIssuer().getUsername().equals(username))
-                    issue++;
-                if(l.getReceiver().getUsername().equals(username))
-                    recieve++;
-            }
-        }
-        System.out.println("Number Of Issues: "+issue);
-        System.out.println("Number of ReceiveProcess: "+recieve);
+    public void historyPerStudent(String username) {
+        for (Loan l : queryLoans("l.student_username = ? AND l.status IN ('ACTIVE', 'RETURNED')", username))
+            System.out.println(l);
     }
-    public void bookHistory(String name,String author) {
-        int count=0;
-        int c=0;
-        long days=0;
-        getBorrowRequest();
-        if(borrowRequest!=null) {
-            count+=borrowRequest.entrySet().stream()
-                    .filter(l->l.getValue().getStudent().getName().equalsIgnoreCase(name) && l.getValue().getBook().getAuthor().equalsIgnoreCase(author))
-                    .collect(Collectors.collectingAndThen(Collectors.counting(),Long::intValue));
+
+    public int allNotReturnedBookPerStudent(String username) {
+        return DatabaseManager.count(
+                "SELECT COUNT(*) FROM loans WHERE student_username = ? AND status = 'ACTIVE'", username);
+    }
+
+    public int totalOverdueLoansPerStudent(String username) {
+        return DatabaseManager.count(
+                "SELECT COUNT(*) FROM loans WHERE student_username = ? AND status = 'RETURNED' AND return_date > due_date",
+                username);
+    }
+
+    public void removeBanStudent(String username) {
+        try (PreparedStatement ps = DatabaseManager.getConnection().prepareStatement(
+                "DELETE FROM loans WHERE status = 'REQUEST' AND student_username = ?")) {
+            ps.setString(1, username);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
         }
-        getHistory();
-        if(history!=null) {
-            for(Loan l:history.values()) {
-                if(l.getBook().getName().equalsIgnoreCase(name) && l.getBook().getAuthor().equalsIgnoreCase(author)) {
-                    c++;
-                    days= ChronoUnit.DAYS.between(l.getIssueDate(),l.getReturnDate());
+    }
+
+    public void librarianHistory(String username) {
+        int issued = DatabaseManager.count(
+                "SELECT COUNT(*) FROM loans WHERE status = 'RETURNED' AND issuer_username = ?", username);
+        int received = DatabaseManager.count(
+                "SELECT COUNT(*) FROM loans WHERE status = 'RETURNED' AND receiver_username = ?", username);
+        System.out.println("Number Of Issues: " + issued);
+        System.out.println("Number of ReceiveProcess: " + received);
+    }
+
+    public void bookHistory(String name, String author) {
+        int requests = DatabaseManager.count(
+                "SELECT COUNT(*) FROM loans l JOIN books b ON b.isbn = l.book_isbn " +
+                "WHERE l.status = 'REQUEST' AND lower(b.name) = lower(?) AND lower(b.author) = lower(?)", name, author);
+        int borrowed = 0;
+        long totalDays = 0;
+        String sql = "SELECT COUNT(*) AS borrowed, COALESCE(SUM(julianday(return_date) - julianday(issue_date)), 0) AS days " +
+                "FROM loans l JOIN books b ON b.isbn = l.book_isbn " +
+                "WHERE l.status = 'RETURNED' AND lower(b.name) = lower(?) AND lower(b.author) = lower(?)";
+        try (PreparedStatement ps = DatabaseManager.getConnection().prepareStatement(sql)) {
+            ps.setString(1, name);
+            ps.setString(2, author);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    borrowed = rs.getInt("borrowed");
+                    totalDays = (long) rs.getDouble("days");
                 }
             }
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
         }
-        System.out.println("Number Of Request for This Book: "+count);
-        System.out.println("Number Of Borrowed Time: "+c);
-        System.out.println("Average Days Of Borrowing Book: "+(days/c));
+        System.out.println("Number Of Request for This Book: " + requests);
+        System.out.println("Number Of Borrowed Time: " + borrowed);
+        System.out.println("Average Days Of Borrowing Book: " + (borrowed == 0 ? 0 : totalDays / borrowed));
     }
 
     public List<Loan> getTop10LateReturns() {
-        getHistory();
-        if(history!=null) {
-            return history.values().stream()
-                    .filter(loan -> loan.getReturnDate().isAfter(loan.getDueDate()))
-                    .sorted(Comparator.comparingLong(Loan::getDelayDays))
-                    .limit(10)
-                    .toList();
-        }
-        return null;
+        return queryLoans("l.status = 'RETURNED' AND l.return_date > l.due_date " +
+                "ORDER BY julianday(l.return_date) - julianday(l.due_date) DESC LIMIT 10");
     }
 
+    private Map<Integer, Loan> loansByStatus(String status) {
+        Map<Integer, Loan> result = new LinkedHashMap<>();
+        for (Loan loan : queryLoans("l.status = ?", status))
+            result.put(loan.getId(), loan);
+        return result;
+    }
+
+    private Loan getLoanById(int id, String status) {
+        List<Loan> result = queryLoans("l.id = ? AND l.status = ?", String.valueOf(id), status);
+        return result.isEmpty() ? null : result.get(0);
+    }
+
+    private boolean hasPendingRequest(String isbn, String username) {
+        return DatabaseManager.count(
+                "SELECT COUNT(*) FROM loans WHERE status = 'REQUEST' AND book_isbn = ? AND student_username = ?",
+                isbn, username) > 0;
+    }
+
+    private List<Loan> queryLoans(String condition, String... params) {
+        List<Loan> result = new ArrayList<>();
+        try (PreparedStatement ps = DatabaseManager.getConnection().prepareStatement(LOAN_JOIN + "WHERE " + condition)) {
+            for (int i = 0; i < params.length; i++)
+                ps.setString(i + 1, params[i]);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next())
+                    result.add(loanFrom(rs));
+            }
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
+        }
+        return result;
+    }
+
+    private Loan loanFrom(ResultSet rs) throws SQLException {
+        try {
+            Book book = new Book(rs.getString("book_name"), rs.getString("book_author"),
+                    rs.getInt("book_year"), rs.getString("book_isbn"));
+            book.setState(rs.getString("book_state"));
+            Student student = new Student(rs.getString("student_name"), rs.getString("student_id"),
+                    rs.getString("student_username"), rs.getString("student_password"));
+            student.setPermission(rs.getString("student_permission"));
+            return new Loan(book, student, rs.getInt("loan_id"),
+                    dateValue(rs, "borrow_request_date"), dateValue(rs, "issue_date"),
+                    dateValue(rs, "due_date"), dateValue(rs, "return_date"),
+                    librarianFrom(rs, "issuer"), librarianFrom(rs, "receiver"));
+        } catch (InvalidEntrance e) {
+            throw new BookException("Corrupted loan row: " + e.getMessage());
+        }
+    }
+
+    private Librarian librarianFrom(ResultSet rs, String prefix) throws SQLException {
+        String username = rs.getString(prefix + "_name");
+        if (username == null)
+            return null;
+        try {
+            Librarian librarian = new Librarian(username, rs.getString(prefix + "_password"));
+            librarian.setNumBook(rs.getInt(prefix + "_num_book"));
+            return librarian;
+        } catch (InvalidEntrance e) {
+            throw new BookException("Corrupted librarian row: " + e.getMessage());
+        }
+    }
+
+    private LocalDate dateValue(ResultSet rs, String column) throws SQLException {
+        String value = rs.getString(column);
+        return value == null ? null : LocalDate.parse(value);
+    }
 }

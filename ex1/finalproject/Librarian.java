@@ -24,6 +24,12 @@ public class Librarian extends User
     {
         return numBook;
     }
+
+    // Used by the database code when rebuilding a librarian from a table row.
+    void setNumBook(int numBook)
+    {
+        this.numBook = numBook;
+    }
     public String getUsername()
     {
         return super.getUsername();
